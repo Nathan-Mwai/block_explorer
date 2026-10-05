@@ -299,10 +299,55 @@ app.get("/api/geocode", async (req, res) => {
   }
 });
 
-// Dynamic model selection prioritizing user requested gemini-2.5-flash with adaptive fallback
-let preferredModel = "gemini-2.5-flash";
+// Multi-tiered candidate models: gemini-3.8-flash per error recommendation & skill constitution,
+// with resilient fallbacks for 503 high-demand or quota limitations.
+const CANDIDATE_MODELS = [
+  "gemini-3.8-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
+];
 
-// AI Local Insights endpoint using Gemini 2.5 Flash
+async function generateTourGuideInsights(prompt: string): Promise<string> {
+  const ai = getGeminiClient();
+  let lastError: any = null;
+
+  for (const model of CANDIDATE_MODELS) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+        });
+        const text = response.text || "";
+        if (text.trim()) {
+          return text;
+        }
+      } catch (err: any) {
+        lastError = err;
+        const errStr = String(err?.message || err || "");
+        const isTransient =
+          errStr.includes("503") ||
+          errStr.includes("high demand") ||
+          errStr.includes("429") ||
+          errStr.includes("quota") ||
+          errStr.includes("UNAVAILABLE") ||
+          errStr.includes("RESOURCE_EXHAUSTED");
+
+        if (isTransient && attempt < 2) {
+          // Brief exponential backoff
+          await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+          continue;
+        }
+        // If not transient or exhausted attempts for this model, move to next model
+        break;
+      }
+    }
+  }
+
+  throw lastError || new Error("All Gemini models were unavailable.");
+}
+
+// AI Local Insights endpoint
 // Generates exactly 3 engaging, unusual fun facts formatted as a clean HTML <ul>
 app.post("/api/insights", async (req, res) => {
   const cityState = (req.body?.cityState as string || "").trim();
@@ -320,35 +365,7 @@ app.post("/api/insights", async (req, res) => {
   const prompt = `You are a local tour guide for ${cityState}. Give me exactly 3 short, highly engaging, and unusual or surprising fun facts about this place. Keep each fact under 2 sentences. Format the response as a clean HTML unordered list (<ul>) so I can inject it directly.`;
 
   try {
-    const ai = getGeminiClient();
-    let response;
-
-    try {
-      response = await ai.models.generateContent({
-        model: preferredModel,
-        contents: prompt,
-      });
-    } catch (err: any) {
-      const errStr = JSON.stringify(err?.message || err || "");
-      if (
-        preferredModel === "gemini-2.5-flash" &&
-        (errStr.includes("gemini-2.5-flash") ||
-          errStr.includes("404") ||
-          errStr.includes("NOT_FOUND") ||
-          errStr.includes("no longer available"))
-      ) {
-        console.warn("gemini-2.5-flash unavailable, falling back to gemini-3.8-flash");
-        preferredModel = "gemini-3.8-flash";
-        response = await ai.models.generateContent({
-          model: preferredModel,
-          contents: prompt,
-        });
-      } else {
-        throw err;
-      }
-    }
-
-    let rawText = response.text || "";
+    let rawText = await generateTourGuideInsights(prompt);
 
     // Strip markdown code fences if wrapped by the model (e.g. ```html ... ``` or ``` ...)
     rawText = rawText
@@ -400,6 +417,26 @@ app.post("/api/insights", async (req, res) => {
         : "Check network connectivity or click Retry to generate insights again.",
     });
   }
+});
+
+// Guard all /api/* routes so any unhandled endpoint returns JSON, never HTML
+app.all("/api/*", (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "NOT_FOUND",
+    message: `API endpoint ${req.method} ${req.path} not found.`,
+    troubleshooting: "Verify API endpoint name and HTTP method."
+  });
+});
+
+// Explicit error handler for /api to prevent fallthrough to Vite HTML middleware
+app.use("/api", (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("API error caught:", err);
+  res.status(500).json({
+    success: false,
+    error: "INTERNAL_SERVER_ERROR",
+    message: err?.message || "An unexpected server error occurred.",
+  });
 });
 
 // Vite middleware in dev or static files in prod

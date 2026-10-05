@@ -71,7 +71,7 @@ export const LocalInsightsBanner: React.FC<LocalInsightsBannerProps> = ({
                   Local Insights: <span className="text-indigo-600">{cityState || "Exploring"}</span>
                 </h3>
                 <span className="hidden sm:inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 border border-indigo-100/80">
-                  Gemini 2.5 Flash
+                  Gemini Flash
                 </span>
               </div>
             </div>
@@ -140,7 +140,7 @@ export const LocalInsightsBanner: React.FC<LocalInsightsBannerProps> = ({
                       Asking local tour guide for {cityState}...
                     </p>
                     <p className="text-stone-500 text-[11px]">
-                      Gemini 2.5 Flash is discovering 3 unusual and surprising local facts.
+                      Gemini Flash is discovering 3 unusual and surprising local facts.
                     </p>
                   </div>
                 </div>

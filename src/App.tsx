@@ -85,11 +85,27 @@ export default function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Accept: "application/json",
         },
         body: JSON.stringify({ cityState: trimmedLocation }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get("content-type") || "";
+      let data: any = null;
+
+      if (contentType.includes("application/json")) {
+        data = await res.json();
+      } else {
+        const textResponse = await res.text();
+        data = {
+          success: false,
+          error: `HTTP_${res.status}`,
+          message: res.ok
+            ? "Unexpected server response."
+            : `Server returned status ${res.status}.`,
+          troubleshooting: textResponse.slice(0, 150),
+        };
+      }
 
       if (res.ok && data.success && data.html) {
         setInsights({
@@ -136,8 +152,26 @@ export default function App() {
 
       try {
         const keyParam = apiKey ? `&key=${encodeURIComponent(apiKey)}` : "";
-        const res = await fetch(`/api/geocode?address=${encodeURIComponent(query)}${keyParam}`);
-        const data = await res.json();
+        const res = await fetch(`/api/geocode?address=${encodeURIComponent(query)}${keyParam}`, {
+          headers: { Accept: "application/json" },
+        });
+
+        const contentType = res.headers.get("content-type") || "";
+        let data: any = null;
+
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const textResponse = await res.text();
+          data = {
+            success: false,
+            error: `HTTP_${res.status}`,
+            message: res.ok
+              ? "Unexpected server response."
+              : `Geocoding service returned status ${res.status}.`,
+            troubleshooting: textResponse.slice(0, 150),
+          };
+        }
 
         if (res.ok && data.success && data.data) {
           const geocoded: GeocodeData = data.data;
